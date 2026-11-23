@@ -22,7 +22,7 @@ Then broken variants of host/hos_ab.c must fail: the warm-up ignored, the sides 
 across a flip not a transition, the name not checked, a period of 0 accepted, a value that is no number accepted.
 
 The places of the calls (hos_ab_start before the game's threads, hos_ab_present in rx_nvn_present, hos_ab_end in
-hos_close_finish, hos_ab_frame last in vk_host) and the list of wired switches are read from the source.
+hos_close_finish, hos_ab_frame in vk_host's ab_frame slot) and the list of wired switches are read from the source.
 
 scripts/ab_summary.py on made-up traces: known means per side (16 and 18 ms), the warm-up's and the transitions' frames (50 and
 100 ms) left out, a last period cut short left out and one more for the same side at both ends, two files together, and a
@@ -353,13 +353,20 @@ def wiring_checks():
     present = block(backend, "void rx_nvn_present(const nvn_tex *t, const int crop[4]) {")
     if not 0 <= present.index("hos_ab_present();") < present.index("vk->nvn_present(t, crop)"):
         fail("host/rx_backend.c: rx_nvn_present does not count the frame (hos_ab_present) before the renderer presents")
-    table = re.sub(r"/\*.*?\*/", "", block(backend, "static const MkwVkHost vk_host = {"), flags=re.S)
-    if [v.strip() for v in table.split(",") if v.strip()][-2] != "hos_ab_frame":
-        fail("host/rx_backend.c: vk_host does not end with hos_ab_frame (MkwVkHost.ab_frame, version 34)")
     api = (ROOT / "gpu/vk/vk_api.h").read_text(encoding="utf-8")
+    host = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", api.split("typedef struct MkwVkHost {", 1)[1].split("} MkwVkHost;", 1)[0],
+                                          flags=re.S))
     if int(re.search(r"#define MKWVK_API_VERSION (\d+)", api).group(1)) < 35 or \
-            "int (*ab_frame)(int64_t from_ns, int64_t to_ns);\n} MkwVkHost;" not in api:
-        fail("gpu/vk/vk_api.h: MkwVkHost does not end with ab_frame at version 34 or later")
+            "int (*ab_frame)(int64_t from_ns, int64_t to_ns);" not in host:
+        fail("gpu/vk/vk_api.h: MkwVkHost has no ab_frame at version 35 or later")
+    # (ab_frame was appended at version 35; later versions append after it, so the check is its slot, not the table's end)
+    fields = [re.search(r"\(\*(\w+)\)", d).group(1) if "(*" in d else d.split()[-1] for d in host.split(";") if d.strip()]
+    table = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", block(backend, "static const MkwVkHost vk_host = {"), flags=re.S))
+    for windows in (True, False):   # (each side of an #ifdef _WIN32 in the table is a whole initializer)
+        side = re.sub(r"#ifdef _WIN32\s*([^#]*)#else\s*([^#]*)#endif", lambda m: m.group(1 if windows else 2), table)
+        values = [v.strip() for v in side.split(",") if v.strip()][:-1]   # (block() keeps the closing brace)
+        if len(values) != len(fields) or values[fields.index("ab_frame")] != "hos_ab_frame":
+            fail("host/rx_backend.c: vk_host's ab_frame slot is not hos_ab_frame (MkwVkHost.ab_frame, version 35)")
     replay = (ROOT / "gpu/vk/vk_replay.cpp").read_text(encoding="utf-8")
     if "host->version >= 35 && host->ab_frame ? host->ab_frame(l_at, at) : -1" not in replay:
         fail("gpu/vk/vk_replay.cpp: the frame trace does not ask the host for ab_side (only from a version 34 host)")
