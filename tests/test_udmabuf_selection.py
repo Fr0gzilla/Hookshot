@@ -1,6 +1,8 @@
 """Linux startup selection: an accessible device with hidden sysfs keeps the renderer's fallback available.
 
 Only the production selection block executes; device/file boundaries are authored. No device, mapping or game is used.
+The selection is hos_main.c's own: HOS_GUEST_MEMFD read by the switches' on/off rule (env_value_off, the real
+gpu/vk/compat/hookshot_env.h), and RX_VK_NO_DMABUF keeping the automatic choice off.
 """
 import argparse
 from pathlib import Path
@@ -12,23 +14,29 @@ ROOT = Path(__file__).resolve().parents[1]
 RUN_ALL_ARGS = ["--cc", "gcc"]
 RUN_ALL_SKIP = {"windows": "Linux memfd/sysfs startup policy"}
 
-CASES = [
-    ("positive", 42, "64", "unset", (1, 64, 1, 1, 1, 0)),
-    ("sysfs newline", 42, "64\n", "unset", (1, 64, 1, 1, 1, 0)),
-    ("small limit", 42, "1", "unset", (1, 1, 1, 1, 1, 0)),
-    ("custom limit", 42, "128", "unset", (1, 128, 1, 1, 1, 0)),
-    ("hidden sysfs", 42, "missing", "unset", (1, 64, 1, 1, 1, 1)),
-    ("disabled", 42, "0", "unset", (0, 0, 0, 1, 1, 0)),
-    ("malformed", 42, "bad", "unset", (0, 0, 0, 1, 1, 0)),
-    ("empty readable file", 42, "", "unset", (0, 0, 0, 1, 1, 0)),
-    ("device unavailable", -1, "64", "unset", (0, 0, 0, 0, 0, 0)),
-    ("explicit off", 42, "64", "0", (1, 64, 0, 1, 1, 0)),
-    ("explicit off with hidden sysfs", 42, "missing", "0", (1, 64, 0, 1, 1, 0)),
-    ("explicit on with hidden sysfs", 42, "missing", "1", (1, 64, 1, 1, 1, 0)),
-    ("explicit on with zero", 42, "0", "1", (0, 0, 1, 1, 1, 0)),
-    ("explicit on without device", -1, "missing", "1", (0, 0, 1, 0, 0, 0)),
-    ("explicit off without device", -1, "64", "0", (0, 0, 0, 0, 0, 0)),
-    ("explicit on with malformed limit", 42, "bad", "1", (0, 0, 1, 1, 1, 0)),
+CASES = [   # (label, device, size_limit_mb, HOS_GUEST_MEMFD, RX_VK_NO_DMABUF on, expected)
+    ("positive", 42, "64", "unset", 0, (1, 64, 1, 1, 1, 0)),
+    ("sysfs newline", 42, "64\n", "unset", 0, (1, 64, 1, 1, 1, 0)),
+    ("small limit", 42, "1", "unset", 0, (1, 1, 1, 1, 1, 0)),
+    ("custom limit", 42, "128", "unset", 0, (1, 128, 1, 1, 1, 0)),
+    ("hidden sysfs", 42, "missing", "unset", 0, (1, 64, 1, 1, 1, 1)),
+    ("disabled", 42, "0", "unset", 0, (0, 0, 0, 1, 1, 0)),
+    ("malformed", 42, "bad", "unset", 0, (0, 0, 0, 1, 1, 0)),
+    ("empty readable file", 42, "", "unset", 0, (0, 0, 0, 1, 1, 0)),
+    ("device unavailable", -1, "64", "unset", 0, (0, 0, 0, 0, 0, 0)),
+    ("explicit off", 42, "64", "0", 0, (1, 64, 0, 1, 1, 0)),
+    ("explicit off with hidden sysfs", 42, "missing", "0", 0, (1, 64, 0, 1, 1, 0)),
+    ("explicit on with hidden sysfs", 42, "missing", "1", 0, (1, 64, 1, 1, 1, 0)),
+    ("explicit on with zero", 42, "0", "1", 0, (0, 0, 1, 1, 1, 0)),
+    ("explicit on without device", -1, "missing", "1", 0, (0, 0, 1, 0, 0, 0)),
+    ("explicit off without device", -1, "64", "0", 0, (0, 0, 0, 0, 0, 0)),
+    ("explicit on with malformed limit", 42, "bad", "1", 0, (0, 0, 1, 1, 1, 0)),
+    ("RX_VK_NO_DMABUF", 42, "64", "unset", 1, (1, 64, 0, 1, 1, 0)),
+    ("RX_VK_NO_DMABUF with explicit on", 42, "64", "1", 1, (1, 64, 1, 1, 1, 0)),
+    ("explicit off as a word", 42, "64", "off", 0, (1, 64, 0, 1, 1, 0)),
+    ("explicit off, any case, spaces around", 42, "64", " False ", 0, (1, 64, 0, 1, 1, 0)),
+    ("explicit empty value is off", 42, "64", "", 0, (1, 64, 0, 1, 1, 0)),
+    ("explicit on as a word with hidden sysfs", 42, "missing", "yes", 0, (1, 64, 1, 1, 1, 0)),
 ]
 
 FIXTURE = r'''
@@ -37,7 +45,9 @@ FIXTURE = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "hookshot_env.h"
 static const char *authored_limit;
+static int no_dmabuf;
 static int reads, closes, notices;
 static FILE *limit_file(const char *path, const char *mode) {
     assert(strcmp(path,"/sys/module/udmabuf/parameters/size_limit_mb")==0 && strcmp(mode,"r")==0);
@@ -56,7 +66,7 @@ static void probe(int u, const char *e) {
     printf("%d,%llu,%d,%d,%d,%d\n",usable,limit_mb,@@SELECTION@@,reads,closes,notices);
 }
 int main(int argc, char **argv) {
-    assert(argc==4); authored_limit=strcmp(argv[2],"missing") ? argv[2] : NULL;
+    assert(argc==5); authored_limit=strcmp(argv[2],"missing") ? argv[2] : NULL; no_dmabuf=atoi(argv[4]);
     probe(atoi(argv[1]),strcmp(argv[3],"unset") ? argv[3] : NULL); return 0;
 }
 '''
@@ -71,7 +81,7 @@ def main():
     source = args.source.read_text(encoding="utf-8")
     start = source.index('            if (u >= 0) {', source.index('getenv("HOS_GUEST_MEMFD")'))
     block = source[start:source.index('            if (!usable && !e)', start)]
-    selection = re.search(r'if \((e \? atoi\(e\) != 0 : usable)\)', source).group(1)
+    selection = re.search(r'if \((e \? !env_value_off\(e\) : usable && !no_dmabuf)\)', source).group(1)
     code = FIXTURE.replace("@@BLOCK@@", block).replace("@@SELECTION@@", selection)
     with tempfile.TemporaryDirectory(prefix="udmabuf-selection-") as folder:
         root = Path(folder)
@@ -79,11 +89,11 @@ def main():
         def check(text):
             c, exe = root / "fixture.c", root / "fixture"
             c.write_text(text, encoding="utf-8")
-            subprocess.run([args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror", str(c), "-o", str(exe)],
+            subprocess.run([args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(ROOT / "gpu/vk/compat"), str(c), "-o", str(exe)],
                            check=True, timeout=60)
             failures = []
-            for label, device, limit, override, expected in CASES:
-                result = subprocess.run([str(exe), str(device), limit, override], check=True,
+            for label, device, limit, override, no_dmabuf, expected in CASES:
+                result = subprocess.run([str(exe), str(device), limit, override, str(no_dmabuf)], check=True,
                                         capture_output=True, text=True, timeout=10)
                 actual = tuple(map(int, result.stdout.strip().split(",")))
                 if actual != expected:
@@ -91,7 +101,7 @@ def main():
             return failures
 
         assert not (failures := check(code)), failures
-        print("PASS: 16 production startup-selection cases; no real device or process setting changed")
+        print("PASS: %d production startup-selection cases; no real device or process setting changed" % len(CASES))
         if args.mutations:
             mutations = [
                 ("fallback lost", "limit_mb = 64;", "limit_mb = 0;"),
@@ -100,6 +110,8 @@ def main():
                  'if (fscanf(f, "%llu", &limit_mb) != 1) limit_mb = 64;'),
                 ("explicit off ignored", selection, "e ? usable : usable"),
                 ("explicit on ignored", selection, "e ? 0 : usable"),
+                ("RX_VK_NO_DMABUF ignored", selection, "e ? !env_value_off(e) : usable"),
+                ("on/off read as a number", selection, "e ? atoi(e) != 0 : usable && !no_dmabuf"),
             ]
             for label, before, after in mutations:
                 assert code.count(before) == 1, label
