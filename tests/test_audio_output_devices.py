@@ -54,7 +54,6 @@ def check_host_callbacks(api, backend):
     fields = [re.search(r'\(\*(\w+)\)', d).group(1) if '(*' in d else d.split()[-1]
               for d in body.split(';') if d.strip()]
     body = code(backend.split('static const MkwVkHost vk_host = {', 1)[1].split('};', 1)[0])
-    table = [value.strip() for value in body.split(',') if value.strip()]
     expected = {'take_text': 'host_take_text', 'options_path': 'hos_options_file',
                 'audio_output_count': 'hos_audio_output_count', 'audio_output_info': 'hos_audio_output_info',
                 'audio_output_select': 'hos_audio_output_select', 'audio_output_state': 'hos_audio_output_state',
@@ -62,18 +61,27 @@ def check_host_callbacks(api, backend):
                 'out_of_memory': 'host_out_of_memory',
                 'monitor_count': 'hos_monitor_count', 'monitor_info': 'hos_monitor_info',
                 'monitor_select': 'hos_monitor_select'}
-    assert len(fields) == len(table), 'Host interface/initializer lengths differ'
     # (the end of the table: playback, the microphone test (28), the frame trace's main_thread_times (29), the renderer's
-    # out_of_memory (30), the fullscreen monitor's three (31), the rumble test (33) and the NFC tab's seven (34); take_text
-    # and options_path come earlier, the mods' and cheats' callbacks between them and playback)
+    # out_of_memory (30), the fullscreen monitor's three (31), the rumble test (33), the NFC tab's seven (34), the A/B's
+    # ab_frame (35) and the Windows Vulkan loader's vulkan_loader_proc (36); take_text and options_path come earlier, the
+    # mods' and cheats' callbacks between them and playback)
     tail = ['audio_output_count', 'audio_output_info', 'audio_output_select', 'audio_output_state', 'mic_test',
             'main_thread_times', 'out_of_memory', 'monitor_count', 'monitor_info', 'monitor_select', 'rumble_test',
-            'nfc_count', 'nfc_name', 'nfc_tap', 'nfc_state', 'nfc_dir', 'nfc_scan', 'nfc_scan_name']
-    assert fields[-len(tail):] == tail, 'Mic test must follow playback (29 appends main_thread_times, 30 out_of_memory, 31 the monitor callbacks, 33 the rumble test, 34 NFC)'
+            'nfc_count', 'nfc_name', 'nfc_tap', 'nfc_state', 'nfc_dir', 'nfc_scan', 'nfc_scan_name', 'ab_frame',
+            'vulkan_loader_proc']
+    assert fields[-len(tail):] == tail, 'Mic test must follow playback (29 appends main_thread_times, 30 out_of_memory, 31 the monitor callbacks, 33 the rumble test, 34 NFC, 35 ab_frame, 36 vulkan_loader_proc)'
     assert fields.index('take_text') < fields.index('options_path') < fields.index('audio_output_count'), \
         'take_text and options_path must come before playback'
-    for field, value in expected.items():
-        assert table[fields.index(field)] == value, 'Wrong host callback slot: ' + field
+    # (vk_host fills vulkan_loader_proc on Windows only: each side of its #ifdef _WIN32 is a whole initializer)
+    for windows in (True, False):
+        initializer = re.sub(r'#ifdef _WIN32\s*([^#]*)#else\s*([^#]*)#endif',
+                             lambda match: match.group(1 if windows else 2), body)
+        table = [value.strip() for value in initializer.split(',') if value.strip()]
+        assert len(fields) == len(table), 'Host interface/initializer lengths differ'
+        for field, value in expected.items():
+            assert table[fields.index(field)] == value, 'Wrong host callback slot: ' + field
+        assert table[fields.index('vulkan_loader_proc')] == ('host_vulkan_loader_proc' if windows else 'NULL'), \
+            'Wrong host callback slot: vulkan_loader_proc'
 
 PARSER = r'''
 #include <assert.h>
