@@ -141,7 +141,12 @@ def main():
                "HOS_MKW_INTERVAL", "RX_NVN_WATCH_AFTER", "HOS_MUTEX_TRACE", "HOS_FPS_MAX", "HOS_AUDIO_CHANNELS",
                "HOS_AUDIO_DEVICE", "HOS_CRASH_TEST", "HOS_LOG_BATCH_MS", "HOS_NVN_REC_SHIFT", "HOS_NVN_WATCH_DRAW",
                "HOS_SDL_VERSION", "HOS_STATS_AFTER", "HOS_TEXT_SIZE", "HOS_THREAD_TIMES", "HOS_VIDEO_INPUT_LIMIT",
-               "HOS_WIDE_UI_LOG", "HOS_PROFILE_EVERY", "HOS_SHADOW_BUCKET"}
+               "HOS_WIDE_UI_LOG", "HOS_PROFILE_EVERY", "HOS_SHADOW_BUCKET",
+               # (numbers too: a cap, a count, a size, seconds, a rate, a mode or a level, not on and off)
+               "HOS_BG_CAP", "HOS_CYCLE_ITEMS", "HOS_GUEST_PAGES_TEST_MB", "HOS_HEAP_SPLIT", "HOS_HEAP_SPLIT_COLD",
+               "HOS_HOST_SPLIT", "HOS_JOB_ORDER_US", "HOS_MEM_SPLIT", "HOS_MOUSE_TEST", "HOS_NAMES_NATIVE",
+               "HOS_NR_DIFF_EVERY", "HOS_POOL_TRAP", "HOS_POOL_TRAP_EVERY", "HOS_POOL_TRAP_REPORT", "HOS_PROCESS_PRIORITY",
+               "HOS_VCORE_REPLAY_BOOST", "HOS_WHEEL_HOLD_MS", "HOS_WHEEL_TAP_FRAMES", "HOS_ZSTD_NATIVE"}
     switch = r'"((?:RX|HOS|HOOKSHOT|EDEN|NVN)_[A-Z0-9_]+)"'
     direct = re.compile(r"atoi\(getenv\(" + switch + r"\)\)")
     taken = re.compile(r"\b(\w+)\s*=\s*getenv\(" + switch + r"\)")

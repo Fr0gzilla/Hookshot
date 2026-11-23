@@ -15,6 +15,7 @@
    One table, the largest allocations with their addresses, and a line of totals that reconciles the pages counted with the
    process's working set and private commit, saying what it could not explain. Windows only. */
 #include "hos.h"
+#include "../gpu/vk/compat/hookshot_env.h"   /* (env_on: the switches' one rule) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,8 +40,7 @@ static int hs_enabled(void) {
         hs_first = e && atoi(e) > 0 ? atoi(e) : 0;
         const char *c = e ? strpbrk(e, ",:") : NULL;   /* (a batch file splits at a comma: HOS_HOST_SPLIT=60:60 there) */
         hs_every = c ? atoi(c + 1) : 0;
-        const char *l = getenv("RX_VK_LEDGER");
-        hs_ledger = l && atoi(l) > 0;
+        hs_ledger = env_on("RX_VK_LEDGER");
     }
     return hs_first > 0 || hs_ledger;
 }
